@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>飞牛音乐 · TV</title>
+<link rel="stylesheet" href="tv.css"/>
+<style>
+/* 诊断浮层：故意不依赖 tv.css，哪怕主样式整块挂了也能看见字。
+   启动时自动显示 12 秒；按遥控器「菜单/信息」键随时再叫出来。 */
+#sanity{
+  position:fixed;left:0;top:0;width:100%;height:100%;z-index:99999;
+  background:#000;color:#39ff88;font:3.6vmin/1.6 monospace;
+  padding:4vmin 5vmin;box-sizing:border-box;white-space:pre-wrap;word-break:break-all;
+  display:none;overflow:hidden;
+}
+#sanity.on{display:block}
+#sanity b{color:#ffe066;font-weight:normal}
+</style>
+<script>
+/* 最早的错误捕获：必须排在 tv.js 之前。
+   1.0.3 那次"页面加载完成、但一行 JS 都没跑"就是没这条，白等了一轮。 */
+(function () {
+  function send(msg) {
+    try { if (window.FnTV && FnTV.log) FnTV.log(String(msg)); } catch (e) {}
+  }
+  window.__errs = [];
+  window.onerror = function (m, src, line, col) {
+    var f = String(src || '').split('/').pop();
+    var t = 'JS错误 ' + m + ' @' + f + ':' + line;
+    if (window.__errs.length < 6) window.__errs.push(t);
+    send(t);
+  };
+  window.addEventListener('error', function (e) {
+    if (e && e.target && e.target.tagName) {
+      send('资源加载失败 ' + e.target.tagName + ' ' + (e.target.src || e.target.href || ''));
+    }
+  }, true);
+  document.addEventListener('DOMContentLoaded', function () {
+    send('DOM就绪 · css ' + document.styleSheets.length + ' 张 · script ' + document.scripts.length + ' 个');
+  });
+})();
+</script>
+</head>
+<body class="skin-brutal">
+
+<div id="sanity"></div>
+
+<div id="stage">
+
+<div id="backdrop"></div>
+
+  <!-- ================= 登录 ================= -->
+  <section id="p-login" class="page">
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="logo">
+          <span class="disc"></span>
+          <h1>飞牛音乐<small>TV</small></h1>
+        </div>
+        <div class="fld" data-f="base">
+          <label>NAS 地址</label>
+          <div class="val" id="v-base">按 OK 输入飞牛地址</div>
+        </div>
+        <div class="fld" data-f="user">
+          <label>账号</label>
+          <div class="val" id="v-user"></div>
+        </div>
+        <div class="fld" data-f="pass">
+          <label>密码</label>
+          <div class="val" id="v-pass"></div>
+        </div>
+        <div class="fld act" data-f="go">
+          <div class="val" id="v-go">连接并登录</div>
+        </div>
+        <div class="err" id="login-err"></div>
+        <div class="login-tip">遥控器 ↑↓ 选行 ，OK 打开键盘 ，返回键 收起键盘</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 播放 ================= -->
+  <section id="p-player" class="page on">
+    <header class="topbar">
+      <div class="brand"><span class="dot"></span>飞牛音乐<b>TV</b></div>
+      <div class="chip" id="state-chip">已连接</div>
+      <div class="grow"></div>
+      <div class="clock" id="clock">--:--</div>
+    </header>
+
+    <div class="hero">
+      <div class="cover-col">
+        <div class="punit" id="punit">
+          <div class="pu-cap">
+            <span class="pu-brand">飞牛音乐</span>
+            <span class="pu-led" id="pu-led"></span>
+          </div>
+          <div class="pu-screen">
+            <div class="pu-head">
+              <div class="pu-title" id="pu-title">—</div>
+              <div class="pu-artist" id="pu-artist">—</div>
+            </div>
+            <div class="pu-stage" id="pu-stage">
+              <div class="pu-ly" id="pu-ly"></div>
+            </div>
+            <div class="pu-foot">
+              <img id="cover" class="pu-art" alt=""/>
+              <div class="pu-side">
+                <div class="pu-meta" id="pu-meta"></div>
+                <div class="pu-prog">
+                  <span id="pu-cur">0:00</span>
+                  <span class="pu-pbar"><i id="pu-fill"></i></span>
+                  <span id="pu-dur">0:00</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pu-keys">
+            <span class="pu-k" id="pu-prev">◀◀</span>
+            <span class="pu-k pu-k-play" id="pu-play">▶</span>
+            <span class="pu-k" id="pu-next">▶▶</span>
+          </div>
+        </div>
+        <div class="cover-tags">
+          <span class="tag" id="tag-fmt">—</span>
+          <span class="tag" id="tag-idx">— / —</span>
+        </div>
+      </div>
+
+      <div class="info-col">
+        <div class="now">
+          <h2 id="t-title">还没有放歌</h2>
+          <p id="t-artist">按 ↑ 打开曲库，选一首开始</p>
+        </div>
+
+        <canvas id="viz" width="1200" height="130"></canvas>
+
+        <div class="lyric" id="lyric">
+          <div class="ly-inner" id="ly-inner"><div class="ly-none">暂无歌词</div></div>
+        </div>
+
+        <div class="prog">
+          <span class="tm" id="t-cur">0:00</span>
+          <div class="bar"><i id="pfill"></i></div>
+          <span class="tm" id="t-dur">0:00</span>
+        </div>
+      </div>
+    </div>
+
+    <footer class="hintbar" id="hintbar">
+      <span><kbd>←</kbd>上一曲</span>
+      <span><kbd>→</kbd>下一曲</span>
+      <span><kbd>↑</kbd>曲库</span>
+      <span><kbd>↓</kbd>菜单</span>
+      <span><kbd>OK</kbd>播放 / 暂停</span>
+      <span class="hint-right" id="hint-mode">顺序播放</span>
+    </footer>
+  </section>
+
+  <!-- ================= 曲库 ================= -->
+  <section id="p-lib" class="page">
+    <header class="lib-head">
+      <div class="lib-title">曲库</div>
+      <div class="lib-tabs" id="lib-tabs">
+        <button class="tab on" data-tab="tracks">歌曲</button>
+        <button class="tab" data-tab="albums">专辑</button>
+        <button class="tab" data-tab="artists">歌手</button>
+        <button class="tab" data-tab="playlists">歌单</button>
+        <button class="tab" data-tab="favorites">收藏</button>
+      </div>
+      <div class="grow"></div>
+      <div class="lib-count" id="lib-count"></div>
+    </header>
+    <div class="lib-scroll" id="lib-scroll">
+      <div class="lib-grid cols3" id="lib-grid"></div>
+    </div>
+    <footer class="hintbar" id="hintbar-lib">
+      <span><kbd>←→↑↓</kbd>选歌</span>
+      <span><kbd>OK</kbd>播放</span>
+      <span><kbd>↑</kbd>（第一行）切分类</span>
+      <span><kbd>返回</kbd>回到播放</span>
+      <span class="hint-right" id="lib-pos"></span>
+    </footer>
+  </section>
+
+  <!-- ================= 设置 ================= -->
+  <section id="p-menu" class="page">
+    <header class="topbar">
+      <div class="brand"><span class="dot"></span>设置</div>
+      <div class="grow"></div>
+      <div class="clock" id="clock2">--:--</div>
+    </header>
+    <div class="menu-list" id="menu-list"></div>
+    <footer class="hintbar">
+      <span><kbd>↑↓</kbd>选项目</span>
+      <span><kbd>←→</kbd>改数值</span>
+      <span><kbd>OK</kbd>确定</span>
+      <span><kbd>返回</kbd>回到播放</span>
+    </footer>
+  </section>
+
+  <!-- ================= 屏幕键盘 ================= -->
+  <div id="kb" class="modal">
+    <div class="kb-card">
+      <div class="kb-title" id="kb-title">输入</div>
+      <div class="kb-preview" id="kb-preview"></div>
+      <div class="kb-grid" id="kb-grid"></div>
+      <div class="kb-hint">OK 输入 · 返回键 收起</div>
+    </div>
+  </div>
+
+  <div id="hud"></div>
+  <div id="toast"></div>
+</div>
+
+<audio id="audio" preload="metadata"></audio>
+<script src="tv.js"></script>
+</body>
+</html>

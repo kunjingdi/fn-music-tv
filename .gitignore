@@ -1,0 +1,29 @@
+# 构建工具链（1.1G，绝不进库，使用者自备 JDK17 + Android SDK build-tools）
+tools/
+build/
+
+# 签名证书与密码（丢了就没法给已装用户推升级包，务必单独备份）
+*.keystore
+*.jks
+*.env
+.env.local
+
+# 签好名的安装包（二进制走 Releases，不进 git）
+*.apk
+*.aab
+
+# 私有配置（签名常量，只保留 .example.json）
+android/assets/fn_config.json
+
+# 备份与临时
+_备份/
+_patch_*.py
+*.log
+*.bak
+
+# 编辑器/系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.workbuddy/

@@ -1,0 +1,956 @@
+/* ==========================================================================
+   飞牛音乐 · TV 端样式
+   --------------------------------------------------------------------------
+   1920×1080 的固定画布（#stage），按屏幕等比缩放，4K 电视上一样清晰。
+   皮肤沿用桌面播放器那 7 套：新粗野 / 透明玻璃 / 8-BIT 像素 / 新拟物 /
+   黏土 / 瑞士极简 / 透明灯箱，外加 3 套配色。
+   遥控器焦点一律用"粗描边 + 外发光 + 微放大"三件套，坐在三米外也看得清。
+   ========================================================================== */
+
+:root{
+  --bg-0:#0a0c10; --bg-1:#12151c; --bg-2:#181d26;
+  --txt:#ffffff; --dim:#a8b6c8; --faint:#66758a;
+  --card:rgba(255,255,255,.06); --card-2:rgba(255,255,255,.10);
+  --stroke:rgba(255,255,255,.14); --stroke-2:rgba(255,255,255,.30);
+  --accent:#ffe066; --accent-txt:#0a0a0a; --accent2:#ffd633;
+  --radius:3px; --radius-lg:6px;
+  --focus-ring:0 0 0 5px var(--accent);
+  --font:"Noto Sans CJK SC","Source Han Sans SC","Microsoft YaHei","PingFang SC",sans-serif;
+  --mono:"Noto Sans Mono CJK SC",Consolas,monospace;
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;background:#000}
+body{
+  font-family:var(--font); color:var(--txt);
+  -webkit-font-smoothing:antialiased;
+  user-select:none; -webkit-user-select:none;
+  cursor:none;
+}
+button{font-family:inherit;color:inherit;background:none;border:0;outline:0;cursor:none}
+
+/* 画布：等比铺满，四周留黑边 */
+#backdrop{
+  position:absolute;left:0;top:0;width:1920px;height:1080px;
+  background-size:cover;background-position:center;background-color:transparent;
+  z-index:0;
+  /* 背景是 32×18 的小图拉伸到 1920×1080，每画一次要插值 200 万像素。
+     单独成层以后只在换歌时重算一次，平时合成时直接 blit。 */
+  transform:translateZ(0); will-change:transform;
+}
+#backdrop::after{
+  content:'';position:absolute;left:0;top:0;width:1920px;height:1080px;
+  background:var(--scrim,rgba(10,12,16,.84));
+}
+#stage{
+  position:absolute; left:0; top:0;
+  width:1920px; height:1080px;
+  transform-origin:0 0;
+  overflow:hidden;
+  /* 整块舞台自己也是一层：静态内容的栅格化结果被缓存住，
+     子层（波形）刷新时不至于把它整块重画一遍 */
+  will-change:transform;
+  background:
+    radial-gradient(1200px 700px at 82% -14%, rgba(255,224,102,.10), transparent 62%),
+    radial-gradient(900px 620px at -8% 108%, rgba(120,180,255,.07), transparent 58%),
+    linear-gradient(135deg, var(--bg-0), var(--bg-1) 52%, var(--bg-2));
+}
+
+/* ---------------- 页面切换 ---------------- */
+.page{
+  position:absolute; left:0; top:0; width:1920px; height:1080px;
+  display:none; flex-direction:column;
+}
+.page.on{display:flex}
+
+/* ---------------- 顶栏 ---------------- */
+.topbar{
+  flex:none; height:86px; padding:0 56px;
+  display:flex; align-items:center;
+  border-bottom:1px solid var(--stroke);
+}
+.brand{display:flex;align-items:center;font-size:30px;font-weight:800;letter-spacing:.02em}
+.brand .dot{
+  width:16px;height:16px;border-radius:50%;margin-right:14px;
+  background:var(--accent); box-shadow:0 0 22px var(--accent);
+}
+.brand b{
+  margin-left:12px;font-size:19px;font-weight:800;letter-spacing:.14em;
+  padding:4px 10px;border-radius:4px;background:var(--accent);color:var(--accent-txt);
+}
+.chip{
+  margin-left:26px; font-size:19px; color:var(--dim);
+  border:1px solid var(--stroke); border-radius:999px; padding:5px 16px;
+}
+.chip.playing{color:var(--accent); border-color:var(--accent)}
+.grow{flex:1}
+.clock{font-size:26px;font-weight:700;color:var(--dim);font-variant-numeric:tabular-nums;letter-spacing:.04em}
+
+/* ==========================================================================
+   播放器机身（左边那块）—— 每套皮肤用一组变量捏出自己的样子
+   变量：--unit-* 机身 / --scr-* 液晶屏 / --key-* 按键 / --scrim 背景压暗层
+   ========================================================================== */
+:root{
+  --unit-bg:#171a21; --unit-edge:#2b3039; --unit-bw:2px; --unit-radius:16px;
+  --unit-shadow:0 22px 44px rgba(0,0,0,.55); --unit-fg:#9aa6b8;
+  --scr-bg:#0b0f14; --scr-edge:#242b34; --scr-fg:#ffe066; --scr-dim:#7d8794;
+  --scr-radius:10px; --scr-shadow:inset 0 0 26px rgba(0,0,0,.7);
+  --key-bg:#20242c; --key-fg:#dfe6ef; --key-edge:#333a45; --key-bw:2px;
+  --key-radius:10px; --key-shadow:0 4px 10px rgba(0,0,0,.45);
+}
+.punit{
+  position:relative;width:556px;height:706px;
+  display:flex;flex-direction:column;
+  padding:18px;gap:14px;
+  background:var(--unit-bg);
+  border:var(--unit-bw) solid var(--unit-edge);
+  border-radius:var(--unit-radius);
+  box-shadow:var(--unit-shadow);
+}
+.pu-cap{flex:none;height:24px;display:flex;align-items:center;justify-content:space-between}
+.pu-brand{font-size:16px;font-weight:800;letter-spacing:.24em;color:var(--unit-fg);opacity:.9}
+.pu-led{width:9px;height:9px;border-radius:50%;background:var(--accent);opacity:.35}
+.pu-led.on{opacity:1;box-shadow:0 0 10px var(--accent)}
+
+.pu-screen{
+  position:relative;flex:1;min-height:0;padding:12px;
+  display:grid;grid-template-rows:auto 1fr auto;gap:10px;
+  background:var(--scr-bg);border:2px solid var(--scr-edge);
+  border-radius:var(--scr-radius);box-shadow:var(--scr-shadow);
+  overflow:hidden;
+}
+
+/* —— 顶部信息条：歌名 + 歌手，横着一条 —— */
+.pu-head{
+  display:flex;align-items:baseline;gap:16px;min-width:0;
+  padding:0 2px 7px;border-bottom:1px solid rgba(128,128,128,.24);
+}
+.pu-title{
+  flex:0 1 auto;min-width:0;font-size:21px;font-weight:800;line-height:1.2;
+  color:var(--scr-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.pu-artist{
+  flex:1 1 0;min-width:0;font-size:13px;color:var(--scr-dim);text-align:right;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* —— 中间舞台：封面铺满，歌词压在封面上 —— */
+.pu-stage{
+  position:relative;min-height:0;border-radius:6px;overflow:hidden;
+  background-color:rgba(60,60,60,.35);
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+}
+.pu-stage::after{           /* 压暗，保证白字能读 */
+  content:'';position:absolute;left:0;top:0;right:0;bottom:0;
+  background:linear-gradient(to bottom,
+    rgba(0,0,0,.28) 0%, rgba(0,0,0,.14) 38%, rgba(0,0,0,.62) 100%);
+}
+.pu-ly{
+  position:absolute;left:0;right:0;bottom:0;z-index:1;
+  padding:0 16px 15px;
+  font-size:calc(25px * var(--lyrick,1));line-height:1.36;font-weight:800;
+  color:#fff;text-align:center;
+  text-shadow:0 2px 12px rgba(0,0,0,.75);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* —— 底部功能区：小封面 + 频谱 + 进度 —— */
+.pu-foot{display:grid;grid-template-columns:94px 1fr;gap:14px;align-items:center;min-width:0}
+.pu-art{
+  width:94px;height:94px;object-fit:cover;border-radius:4px;
+  background:rgba(128,128,128,.18);
+}
+.pu-side{display:flex;flex-direction:column;justify-content:center;gap:9px;min-width:0}
+.punit.no-art .pu-foot{grid-template-columns:1fr}
+.punit.no-art .pu-art{display:none}
+
+/* 这里原来是一排频谱柱。柱子是静态的（一动画就整页重绘），
+   摆着也不传达任何信息 —— 换成这首曲子的技术参数，信息量实在。 */
+.pu-meta{
+  height:46px;display:flex;align-items:center;gap:12px;
+  font-size:15px;color:var(--scr-dim);font-variant-numeric:tabular-nums;
+  white-space:nowrap;overflow:hidden;
+}
+.pu-meta b{color:var(--scr-fg);font-weight:800;font-size:16px;letter-spacing:.05em}
+.pu-meta span{opacity:.92}
+.pu-meta em{color:var(--scr-dim);opacity:.38;font-style:normal;font-size:12px}
+
+.pu-prog{
+  display:flex;align-items:center;gap:8px;
+  font-size:13px;color:var(--scr-dim);font-variant-numeric:tabular-nums;
+}
+.pu-pbar{flex:1;height:6px;border-radius:3px;background:rgba(128,128,128,.28);overflow:hidden}
+.pu-pbar i{display:block;height:100%;width:0;background:var(--scr-fg);opacity:.9;border-radius:3px}
+
+.pu-keys{flex:none;height:64px;display:flex;align-items:center;justify-content:center;gap:13px}
+.pu-k{
+  width:76px;height:52px;display:flex;align-items:center;justify-content:center;
+  font-size:17px;font-weight:800;letter-spacing:.02em;
+  background:var(--key-bg);color:var(--key-fg);
+  border:var(--key-bw) solid var(--key-edge);border-radius:var(--key-radius);
+  box-shadow:var(--key-shadow);
+}
+.pu-k-play{width:104px}
+
+/* ⚠ 这里原来挂过 5 个 infinite 的 opacity 关键帧动画。
+   软件渲染没有合成层，opacity 动画 = 每帧重绘整个 1920×1080 舞台
+   （三层大渐变 + 几十个阴影），一秒 60 次直接把 CPU 打满，
+   表现就是「什么都卡」。现在改成纯静态柱子，只在暂停/播放时整体调透明度。 */
+
+/* ---------------- 播放页主体 ---------------- */
+.hero{
+  flex:1; display:grid; grid-template-columns:576px 1fr; grid-gap:46px;
+  padding:22px 52px 6px; min-height:0;
+}
+
+/* 封面 / 唱片 */
+.cover-col{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:0}
+.vinyl{position:relative;width:540px;height:540px;display:flex;align-items:center;justify-content:center}
+.vinyl .glow{
+  position:absolute;left:50%;top:50%;width:600px;height:600px;margin:-300px 0 0 -300px;
+  border-radius:50%; pointer-events:none;
+  background:radial-gradient(circle, rgba(255,255,255,.20) 0%, rgba(255,255,255,0) 62%);
+  opacity:.55;
+}
+.platter{
+  position:relative;width:520px;height:520px;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, #1b1b1b 0 32%, #0d0d0d 33% 100%);
+  box-shadow:0 14px 34px rgba(0,0,0,.55), inset 0 0 0 2px rgba(255,255,255,.10);
+  display:flex;align-items:center;justify-content:center;
+  /* 软件渲染下这圈 520px 的旋转每帧都要重画，帧率杀手，改成静态 */
+  animation:none;
+}
+.platter.spin{animation-play-state:running}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.platter img{
+  width:330px;height:330px;border-radius:50%;object-fit:cover;
+  box-shadow:0 0 0 3px rgba(0,0,0,.55);
+  background:#111;
+}
+.platter .hole{
+  position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;
+  border-radius:50%;background:#0a0a0a;box-shadow:0 0 0 5px rgba(255,255,255,.16);
+}
+.cover-tags{display:flex;margin-top:26px}
+.tag{
+  font-size:18px;letter-spacing:.06em;color:var(--dim);
+  border:1px solid var(--stroke);border-radius:999px;padding:5px 15px;margin:0 6px;
+}
+.tag:empty{display:none}
+
+/* 右栏 */
+.info-col{display:flex;flex-direction:column;min-height:0}
+.now h2{
+  font-size:62px;line-height:1.16;font-weight:800;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:100%;
+}
+.now p{
+  margin-top:10px;font-size:30px;color:var(--dim);font-weight:500;letter-spacing:.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
+}
+/* 波形画布：全页唯一高频刷新的元素，必须单独成层。
+   软件渲染下没有合成层 = 只要它一动，整块 1920×1080 舞台全部重画。
+   提成独立层之后，每帧只重画这条 118px 高的横条。 */
+#viz{
+  display:block;width:100%;height:118px;margin-top:14px;opacity:.92;
+  transform:translateZ(0); will-change:transform;
+}
+
+/* 歌词 */
+.lyric{
+  position:relative;flex:1;min-height:0;margin-top:8px;overflow:hidden;
+  /* 遮罩在软件渲染下很贵，去掉；靠上下留白代替 */
+  /* 歌词每换一行都要动，独立成层：只重画这一块，不牵动左边机身和整页底 */
+  transform:translateZ(0); will-change:transform;
+}
+.ly-inner{
+  position:absolute;left:0;right:0;top:50%;
+  /* 位移固定不变（当前句永远居中），所以不需要过渡 */
+}
+.ly-line{
+  height:88px;line-height:88px;font-size:calc(40px * var(--lyrick,1));font-weight:700;
+  color:var(--faint);text-align:center;padding:0 30px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  /* 只过渡颜色和缩放：font-size 过渡会每帧重排，软件渲染下就是卡顿源头 */
+  /* 只补间位移。颜色/透明度一起补间的话，换一行歌词 = 7 个元素同时重绘 0.24 秒 */
+  transition:transform .22s ease-out;
+  transform:scale(1);transform-origin:center center;
+  opacity:.62;
+}
+.ly-line.active{
+  color:var(--txt);opacity:1;
+  transform:scale(1.13);
+}
+.ly-none{font-size:30px;color:var(--faint);height:84px;line-height:84px;text-align:center}
+
+/* 进度 */
+.prog{flex:none;display:flex;align-items:center;margin-top:8px}
+.prog .tm{
+  width:96px;font-size:22px;color:var(--dim);font-variant-numeric:tabular-nums;
+  letter-spacing:.02em;
+}
+.prog .tm:last-child{text-align:right}
+.bar{
+  flex:1;height:10px;border-radius:99px;background:var(--card-2);
+  margin:0 18px;overflow:hidden;
+}
+.bar i{
+  display:block;height:100%;width:0;border-radius:99px;
+  background:linear-gradient(90deg, var(--accent), var(--accent2));
+  box-shadow:0 0 18px var(--accent);
+  
+}
+
+/* 底部提示条 */
+.hintbar{
+  flex:none;height:84px;padding:0 56px;display:flex;align-items:center;
+  border-top:1px solid var(--stroke); font-size:21px; color:var(--faint);
+  
+}
+.hintbar.hide{opacity:0}
+.hintbar span{margin-right:34px;white-space:nowrap;display:flex;align-items:center}
+.hintbar .hint-right{margin-left:auto;margin-right:0;color:var(--dim)}
+kbd{
+  font-family:var(--font);font-size:19px;font-weight:700;color:var(--txt);
+  border:1px solid var(--stroke-2);border-radius:6px;padding:3px 10px;margin-right:9px;
+  background:var(--card);
+}
+
+/* ---------------- 曲库 ---------------- */
+.lib-head{
+  flex:none;height:106px;padding:0 56px;display:flex;align-items:center;
+}
+.lib-title{font-size:40px;font-weight:800;letter-spacing:.01em;margin-right:38px}
+.lib-tabs{display:flex}
+.tab{
+  font-size:25px;font-weight:700;color:var(--dim);
+  padding:11px 26px;margin-right:12px;border-radius:var(--radius);
+  border:2px solid transparent; 
+}
+.tab.on{color:var(--txt);border-color:var(--stroke-2);background:var(--card)}
+.lib-count{font-size:21px;color:var(--faint)}
+
+.lib-scroll{
+  flex:1;overflow-y:auto;overflow-x:hidden;padding:6px 44px 30px 56px;
+  scrollbar-width:none;
+}
+.lib-scroll::-webkit-scrollbar{display:none}
+.lib-grid{display:grid;grid-gap:18px 22px}
+.lib-grid.cols3{grid-template-columns:repeat(3,1fr)}
+.lib-grid.cols4{grid-template-columns:repeat(4,1fr)}
+
+/* 单行卡片（歌曲 / 收藏） */
+.card{
+  display:flex;align-items:center;height:112px;padding:0 18px;
+  border:3px solid transparent;border-radius:var(--radius);background:var(--card);
+  
+}
+.card .cov{
+  flex:none;width:78px;height:78px;border-radius:var(--radius);margin-right:18px;
+  background:var(--card-2);object-fit:cover;display:flex;align-items:center;justify-content:center;
+  font-size:30px;color:var(--faint);
+}
+.card .meta{min-width:0;flex:1}
+.card .t{
+  font-size:26px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.card .s{
+  margin-top:6px;font-size:19px;color:var(--dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.card .dur{flex:none;font-size:19px;color:var(--faint);margin-left:14px;font-variant-numeric:tabular-nums}
+.card.playing{border-color:var(--accent)}
+.card.playing .t{color:var(--accent)}
+
+/* 封面墙（专辑 / 歌手 / 歌单） */
+.tile{
+  border:3px solid transparent;border-radius:var(--radius);background:var(--card);
+  padding:16px;
+}
+.tile .ar{
+  width:100%;height:200px;border-radius:var(--radius);overflow:hidden;
+  background:var(--card-2);display:flex;align-items:center;justify-content:center;
+  font-size:46px;color:var(--faint);
+}
+.tile .ar img{width:100%;height:100%;object-fit:cover}
+.tile .t{
+  margin-top:14px;font-size:25px;font-weight:700;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.tile .s{margin-top:5px;font-size:18px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 焦点 */
+.card.focus,.tile.focus{
+  border-color:var(--accent);
+  background:var(--card-2);
+  transform:translateY(-3px) scale(1.012);
+  box-shadow:0 18px 40px rgba(0,0,0,.55), 0 0 0 1px var(--accent) inset;
+}
+.tile.focus .t,.card.focus .t{color:var(--txt)}
+.tab.focus{
+  border-color:var(--accent) !important;
+  background:var(--accent) !important;
+  color:var(--accent-txt) !important;
+  transform:translateY(-2px);
+  box-shadow:0 12px 26px rgba(0,0,0,.5);
+}
+
+/* ---------------- 设置 ---------------- */
+.menu-list{flex:1;padding:12px 320px 12px 120px;overflow-y:auto}
+.mrow{
+  display:flex;align-items:center;height:84px;padding:0 30px;margin-bottom:8px;
+  border:3px solid transparent;border-radius:var(--radius);background:var(--card);
+  
+}
+.mrow .k{width:320px;font-size:25px;font-weight:700;color:var(--dim)}
+.mrow .v{flex:1;font-size:26px;font-weight:700}
+.mrow .v .opt{
+  display:inline-block;padding:7px 22px;margin-right:12px;border-radius:var(--radius);
+  border:2px solid var(--stroke);color:var(--dim);font-size:23px;
+}
+.mrow .v .opt.on{background:var(--accent);border-color:var(--accent);color:var(--accent-txt)}
+.mrow .arrow{font-size:30px;color:var(--faint);margin-left:16px}
+.mrow.focus{border-color:var(--accent);background:var(--card-2);transform:translateX(8px)}
+.mrow.focus .k{color:var(--txt)}
+
+/* ---------------- 登录 ---------------- */
+.login-wrap{flex:1;display:flex;align-items:center;justify-content:center}
+.login-card{
+  width:900px;padding:52px 64px 44px;border-radius:var(--radius-lg);
+  background:var(--card);border:3px solid var(--stroke);
+}
+.logo{display:flex;align-items:center;margin-bottom:38px}
+.logo .disc{
+  width:78px;height:78px;border-radius:50%;margin-right:22px;
+  background:radial-gradient(circle at 50% 50%, #1b1b1b 0 34%, #0c0c0c 35% 100%);
+  box-shadow:inset 0 0 0 12px rgba(255,255,255,.06), 0 0 0 3px var(--accent);
+  position:relative;
+}
+.logo .disc:after{
+  content:"";position:absolute;left:50%;top:50%;width:12px;height:12px;margin:-6px 0 0 -6px;
+  border-radius:50%;background:var(--accent);
+}
+.logo h1{font-size:44px;font-weight:800;letter-spacing:.01em}
+.logo small{
+  font-size:22px;margin-left:12px;padding:3px 10px;border-radius:4px;
+  background:var(--accent);color:var(--accent-txt);font-weight:800;letter-spacing:.1em;
+}
+.fld{
+  display:flex;align-items:center;height:92px;padding:0 28px;margin-bottom:14px;
+  border:3px solid var(--stroke);border-radius:var(--radius);background:var(--card-2);
+  
+}
+.fld label{width:210px;font-size:24px;color:var(--dim);font-weight:600}
+.fld .val{
+  flex:1;font-size:27px;font-weight:700;letter-spacing:.02em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.fld .val:empty:before{content:"未填写";color:var(--faint);font-weight:500}
+.fld.act{justify-content:center;background:var(--accent);border-color:var(--accent);margin-top:26px}
+.fld.act .val{flex:none;color:var(--accent-txt);font-size:29px;font-weight:800;letter-spacing:.06em}
+.fld.focus{border-color:var(--accent);box-shadow:0 0 0 4px rgba(255,255,255,.10), 0 14px 34px rgba(0,0,0,.5);transform:translateY(-2px)}
+.fld.act.focus{box-shadow:0 0 0 5px rgba(255,255,255,.24), 0 16px 34px rgba(0,0,0,.5)}
+.err{height:34px;line-height:34px;color:#ff7b8a;font-size:22px;margin-top:8px}
+.login-tip{font-size:20px;color:var(--faint);margin-top:10px}
+
+/* ---------------- 屏幕键盘 ---------------- */
+.modal{
+  position:absolute;left:0;top:0;width:1920px;height:1080px;
+  display:none;align-items:center;justify-content:center;
+  background:var(--bg-0);
+  z-index:40;
+}
+.modal.on{display:flex}
+.kb-card{
+  width:1300px;padding:26px 34px 20px;border-radius:var(--radius-lg);
+  background:var(--bg-1);border:3px solid var(--stroke-2);
+  box-shadow:0 40px 90px rgba(0,0,0,.7);
+}
+.kb-title{font-size:24px;color:var(--dim);font-weight:700}
+.kb-preview{
+  margin:10px 0 14px;height:68px;line-height:68px;padding:0 22px;
+  font-size:34px;font-weight:800;letter-spacing:.06em;
+  border-radius:var(--radius);background:var(--card-2);border:2px solid var(--stroke);
+  white-space:nowrap;overflow:hidden;
+}
+.kb-grid{padding:0 6px}
+.kb-g{
+  font-size:19px;font-weight:700;color:var(--faint);letter-spacing:.18em;
+  margin:12px 0 7px;padding-left:6px;
+}
+.kb-g:first-child{margin-top:0}
+.kb-row{display:flex;justify-content:center;margin-bottom:9px}
+.kb-row .key{width:100px;height:72px;margin:0 5px;flex:none}
+.kb-row .key.fn{width:auto;min-width:120px;padding:0 22px;font-size:23px}
+.kb-row .key.primary{border-color:var(--accent);color:var(--accent);font-weight:800}
+.key{
+  height:84px;font-size:30px;font-weight:700;border-radius:var(--radius);
+  background:var(--card);border:2px solid var(--stroke);
+  display:flex;align-items:center;justify-content:center;
+  transition:background-color .08s linear, border-color .08s linear, color .08s linear;
+}
+.key.wide{grid-column:span 2}
+.key.wider{grid-column:span 3}
+.key.fn{font-size:23px;color:var(--dim)}
+.key.focus{
+  background:var(--accent);border-color:var(--accent);color:var(--accent-txt);
+  box-shadow:0 0 0 3px var(--accent);
+}
+.kb-hint{margin-top:12px;font-size:19px;color:var(--faint);text-align:center}
+
+/* ---------------- HUD / 提示 ---------------- */
+#hud{
+  position:absolute;left:50%;bottom:150px;transform:translateX(-50%);
+  display:none;align-items:center;padding:18px 30px;border-radius:999px;
+  background:rgba(8,12,20,.86);border:2px solid var(--stroke-2);z-index:50;
+}
+#hud.on{display:flex}
+#hud .hbar{width:320px;height:12px;border-radius:99px;background:rgba(255,255,255,.16);overflow:hidden}
+#hud .hbar i{display:block;height:100%;background:var(--accent);box-shadow:0 0 14px var(--accent)}
+#hud .hnum{font-size:24px;font-weight:800;margin-left:18px;min-width:76px;text-align:right}
+#hud .hico{font-size:24px;margin-right:16px}
+
+#toast{
+  position:absolute;left:50%;bottom:250px;transform:translateX(-50%);
+  padding:16px 34px;border-radius:999px;font-size:24px;font-weight:700;
+  background:rgba(8,12,20,.92);border:2px solid var(--stroke-2);
+  opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;
+  white-space:nowrap;
+}
+#toast.on{opacity:1}
+
+/* ==========================================================================
+   皮肤 1 · 新粗野（默认）：粗黑边 + 硬阴影 + 直角，卡片像贴上去的纸片
+   ========================================================================== */
+body.skin-brutal{
+  --bg-0:#f7f4ea; --bg-1:#ffffff; --bg-2:#fdfbf3;
+  --card:#ffffff; --card-2:#ece5d2;
+  --stroke:#111111; --stroke-2:#111111;
+  --accent:#ffd60a; --accent2:#1fdd7a; --accent-txt:#0a0a0a;
+  --txt:#0a0a0a; --dim:#3a3a3a; --faint:#7d7768;
+  --radius:2px; --radius-lg:4px;
+}
+/* 米白纸感底，不铺渐变——软件渲染下大面积渐变每次重绘都要重算 */
+body.skin-brutal #stage{background:#f7f4ea}
+
+/* 顶栏：整条亮黄，下压一道粗黑边 */
+body.skin-brutal .topbar{background:#ffd60a;border-bottom:4px solid #111}
+body.skin-brutal .brand{color:#111}
+body.skin-brutal .brand .dot{background:#111;box-shadow:none}
+body.skin-brutal .brand b{background:#1fdd7a;color:#0a0a0a}
+body.skin-brutal .chip{color:#111;border-color:#111}
+body.skin-brutal .clock{color:#111}
+
+body.skin-brutal .hintbar{border-top:2px solid #111;color:#5f5949}
+
+/* 卡片：白纸片 + 纯黑硬阴影，没有一像素的模糊 */
+body.skin-brutal .card,body.skin-brutal .tile,body.skin-brutal .mrow{
+  border-width:3px;box-shadow:6px 6px 0 #111}
+body.skin-brutal .card.focus,body.skin-brutal .tile.focus,body.skin-brutal .mrow.focus{
+  background:var(--accent);border-color:#111;box-shadow:8px 8px 0 #111}
+body.skin-brutal .card.focus .t,body.skin-brutal .card.focus .s,
+body.skin-brutal .card.focus .dur,body.skin-brutal .tile.focus .t,
+body.skin-brutal .tile.focus .s,body.skin-brutal .mrow.focus .k,
+body.skin-brutal .mrow.focus .v{color:#0a0a0a}
+body.skin-brutal .card.focus .cov{background:rgba(0,0,0,.10)}
+body.skin-brutal .tab{border:3px solid #111}
+body.skin-brutal .tab.focus{background:#ffd60a}
+body.skin-brutal .tab.on{background:#1fdd7a;color:#0a0a0a}
+
+/* 登录卡：更厚的偏移阴影 */
+body.skin-brutal .login-card{background:#fff;border:3px solid #111;box-shadow:10px 10px 0 #111}
+body.skin-brutal .fld{background:#fff;border:3px solid #111}
+
+/* 黑胶在白纸上 + 一块黄的偏移影，最"新粗野"的一笔 */
+body.skin-brutal .platter{
+  background:radial-gradient(circle at 50% 50%,#1b1b1b 0 32%,#0b0b0b 33% 100%);
+  box-shadow:0 0 0 5px #111, 14px 14px 0 #ffd60a}
+body.skin-brutal .platter .hole{background:#111;box-shadow:0 0 0 5px #ffd60a}
+
+/* 歌词：非当前句浅褐灰，当前句纯黑 */
+body.skin-brutal .ly-line{color:#9c9382}
+body.skin-brutal .ly-line.active{color:#0a0a0a}
+body.skin-brutal .ly-none{color:#8b8574}
+
+/* 进度：黄到绿 */
+body.skin-brutal .bar{background:#e6dfcc}
+body.skin-brutal .bar i{background:linear-gradient(90deg,#ffd60a,#1fdd7a);box-shadow:none}
+body.skin-brutal .prog .tm{color:#3a3a3a}
+
+/* 键盘：白键黑边，焦点黄底 */
+body.skin-brutal .key{background:#fff;border:2px solid #111}
+body.skin-brutal .key.fn{background:#f2ecdb}
+body.skin-brutal .key.focus{background:#ffd60a;border-color:#111;color:#0a0a0a;box-shadow:0 0 0 3px #111}
+body.skin-brutal .key.primary{background:#1fdd7a;color:#0a0a0a;border-color:#111}
+body.skin-brutal .kb-card{background:#fff;border:3px solid #111;box-shadow:14px 14px 0 #111}
+body.skin-brutal .kb-preview{background:#f7f4ea;border:2px solid #111}
+body.skin-brutal .kb-g{color:#8b8574}
+
+body.skin-brutal #hud,body.skin-brutal #toast{background:#111;border-color:#111;color:#fff}
+
+/* ---------- 各皮肤：机身外观 ---------- */
+/* 新粗野：白纸片 + 纯黑粗边 + 硬阴影 + 黄绿块 */
+body.skin-brutal .punit{
+  --unit-bg:#ffffff;--unit-edge:#111111;--unit-bw:4px;--unit-radius:4px;
+  --unit-shadow:12px 12px 0 #111111;--unit-fg:#111111;
+  --scr-bg:#f7f4ea;--scr-edge:#111111;--scr-fg:#0a0a0a;--scr-dim:#6b6555;
+  --scr-radius:2px;--scr-shadow:none;
+  --key-bg:#ffd60a;--key-fg:#0a0a0a;--key-edge:#111111;--key-bw:3px;
+  --key-radius:2px;--key-shadow:5px 5px 0 #111111;
+  --scrim:rgba(247,244,234,.80);
+}
+body.skin-brutal .pu-k-play{background:#1fdd7a}
+body.skin-brutal 
+body.skin-brutal 
+body.skin-brutal .pu-pbar{background:#ddd5bf}
+body.skin-brutal .pu-pbar i{background:#111}
+body.skin-brutal .pu-art{box-shadow:0 0 0 3px #111}
+
+/* 透明玻璃：磨砂机身 + 紫蓝内发光 */
+body.skin-glass .punit{
+  --unit-bg:rgba(255,255,255,.09);--unit-edge:rgba(255,255,255,.26);--unit-bw:1px;--unit-radius:22px;
+  --unit-shadow:0 26px 64px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.35);--unit-fg:#c9c2ff;
+  --scr-bg:rgba(0,0,0,.34);--scr-edge:rgba(255,255,255,.18);--scr-fg:#ffffff;--scr-dim:#a49dc8;
+  --scr-radius:14px;--scr-shadow:inset 0 0 34px rgba(124,92,255,.35);
+  --key-bg:rgba(255,255,255,.12);--key-fg:#ffffff;--key-edge:rgba(255,255,255,.30);--key-bw:1px;
+  --key-radius:12px;--key-shadow:0 6px 18px rgba(0,0,0,.35);
+  --scrim:rgba(16,12,38,.72);
+}
+
+/* 8-BIT 像素：米白塑料游戏机 + GameBoy 绿液晶 */
+body.skin-pixel .punit{
+  --unit-bg:#d9d6c4;--unit-edge:#33332a;--unit-bw:4px;--unit-radius:8px;
+  --unit-shadow:9px 9px 0 #33332a;--unit-fg:#3a3a2e;
+  --scr-bg:#0f380f;--scr-edge:#33332a;--scr-fg:#9bbc0f;--scr-dim:#8bac0f;
+  --scr-radius:4px;--scr-shadow:inset 0 0 0 5px #0b2b0b;
+  --key-bg:#e8e5d5;--key-fg:#33332a;--key-edge:#33332a;--key-bw:3px;
+  --key-radius:3px;--key-shadow:3px 3px 0 #33332a;
+  --scrim:rgba(5,11,7,.86);
+}
+body.skin-pixel .pu-brand,body.skin-pixel .pu-title,
+body.skin-pixel .pu-artist,body.skin-pixel .pu-prog{
+  font-family:var(--mono);letter-spacing:.10em;text-transform:uppercase;
+}
+body.skin-pixel .pu-brand{letter-spacing:.3em}
+body.skin-pixel .pu-art{border-radius:0;box-shadow:0 0 0 3px #0b2b0b;image-rendering:pixelated}
+body.skin-pixel 
+body.skin-pixel 
+body.skin-pixel .pu-pbar{border-radius:0;background:#0b2b0b}
+body.skin-pixel .pu-pbar i{background:#9bbc0f;border-radius:0}
+body.skin-pixel .pu-screen::after{
+  content:'';position:absolute;left:0;top:0;width:100%;height:100%;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.22),rgba(0,0,0,.22) 2px,transparent 2px,transparent 4px);
+  pointer-events:none;
+}
+
+/* 新拟物：浅灰软材质，凸起机身 + 内凹屏 */
+body.skin-neumorph .punit{
+  --unit-bg:#e9eef6;--unit-edge:#e9eef6;--unit-bw:0px;--unit-radius:34px;
+  --unit-shadow:18px 18px 42px rgba(163,177,198,.55), -18px -18px 42px rgba(255,255,255,.95);
+  --unit-fg:#5a6472;
+  --scr-bg:#dfe6f0;--scr-edge:#dfe6f0;--scr-fg:#2d3748;--scr-dim:#7b8798;
+  --scr-radius:22px;--scr-shadow:inset 8px 8px 18px rgba(163,177,198,.62), inset -8px -8px 18px rgba(255,255,255,.95);
+  --key-bg:#e9eef6;--key-fg:#3d4756;--key-edge:#e9eef6;--key-bw:0px;--key-radius:16px;
+  --key-shadow:6px 6px 14px rgba(163,177,198,.62), -6px -6px 14px rgba(255,255,255,.95);
+  --scrim:rgba(233,238,246,.88);
+}
+body.skin-neumorph 
+body.skin-neumorph 
+body.skin-neumorph .pu-pbar{background:#cdd6e2}
+body.skin-neumorph .pu-pbar i{background:#5a7ad6}
+
+/* 黏土：陶土色，圆润厚重 */
+body.skin-clay .punit{
+  --unit-bg:#e9b9a0;--unit-edge:#d9a48a;--unit-bw:2px;--unit-radius:36px;
+  --unit-shadow:0 26px 52px rgba(0,0,0,.42), inset 0 7px 14px rgba(255,255,255,.42), inset 0 -11px 20px rgba(0,0,0,.14);
+  --unit-fg:#5b3427;
+  --scr-bg:#3a2b26;--scr-edge:#2a1e1a;--scr-fg:#ffd9a8;--scr-dim:#c9906f;
+  --scr-radius:26px;--scr-shadow:inset 0 9px 20px rgba(0,0,0,.62);
+  --key-bg:#f0c8b4;--key-fg:#5b3427;--key-edge:#d9a48a;--key-bw:2px;--key-radius:22px;
+  --key-shadow:0 8px 16px rgba(0,0,0,.25), inset 0 3px 6px rgba(255,255,255,.5);
+  --scrim:rgba(42,26,20,.74);
+}
+
+/* 瑞士极简 */
+body.skin-swiss .punit{
+  --unit-bg:#ffffff;--unit-edge:#e4e4e4;--unit-bw:1px;--unit-radius:0px;
+  --unit-shadow:none;--unit-fg:#111111;
+  --scr-bg:#fafafa;--scr-edge:#e4e4e4;--scr-fg:#111111;--scr-dim:#8a8a8a;
+  --scr-radius:0px;--scr-shadow:none;
+  --key-bg:#ffffff;--key-fg:#111111;--key-edge:#dddddd;--key-bw:1px;--key-radius:0px;
+  --key-shadow:none;
+  --scrim:rgba(255,255,255,.90);
+}
+
+/* 透明灯箱：深色 + 橙光 */
+body.skin-lumen .punit{
+  --unit-bg:#151311;--unit-edge:#2b2620;--unit-bw:1px;--unit-radius:14px;
+  --unit-shadow:0 0 64px rgba(255,181,71,.20), 0 26px 52px rgba(0,0,0,.72);--unit-fg:#c9b69a;
+  --scr-bg:#0b0906;--scr-edge:#3a2e1d;--scr-fg:#ffb547;--scr-dim:#8a6a3f;
+  --scr-radius:8px;--scr-shadow:inset 0 0 44px rgba(255,181,71,.22);
+  --key-bg:#221c14;--key-fg:#ffb547;--key-edge:#3a2e1d;--key-bw:1px;--key-radius:8px;
+  --key-shadow:0 6px 14px rgba(0,0,0,.5);
+  --scrim:rgba(8,6,4,.80);
+}
+
+/* ==========================================================================
+   皮肤 2 · 透明玻璃：紫蓝渐变 + 半透明卡片 + 白色发光焦点
+   ========================================================================== */
+body.skin-glass{
+  --bg-0:#0d0820; --bg-1:#1a1145; --bg-2:#241a5e;
+  --card:rgba(255,255,255,.09); --card-2:rgba(255,255,255,.16);
+  --stroke:rgba(255,255,255,.18); --stroke-2:rgba(255,255,255,.42);
+  --accent:#ffffff; --accent2:#b9a6ff; --accent-txt:#1a1145;
+  --txt:#ffffff; --dim:#c3b8ea; --faint:#8a7fb8;
+  --radius:20px; --radius-lg:26px;
+}
+body.skin-glass #stage{
+  background:
+    radial-gradient(900px 700px at 78% -10%, rgba(124,92,255,.62), transparent 62%),
+    radial-gradient(800px 640px at 4% 108%, rgba(0,182,255,.40), transparent 60%),
+    linear-gradient(135deg,#0d0820,#1a1145 50%,#241a5e);
+}
+body.skin-glass .card,body.skin-glass .tile,body.skin-glass .mrow{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22), 0 16px 40px rgba(0,0,0,.4);
+}
+body.skin-glass .card.focus,body.skin-glass .tile.focus,body.skin-glass .mrow.focus{
+  background:rgba(255,255,255,.20);
+  box-shadow:0 0 0 3px #fff, 0 20px 46px rgba(124,92,255,.55);
+}
+body.skin-glass .brand .dot{box-shadow:0 0 26px #fff, 0 0 60px rgba(185,166,255,.9)}
+body.skin-glass .tab.focus{box-shadow:0 0 0 3px #fff, 0 12px 30px rgba(124,92,255,.6)}
+body.skin-glass .platter{box-shadow:0 34px 80px rgba(0,0,0,.66), inset 0 0 0 2px rgba(255,255,255,.22)}
+body.skin-glass .login-card{background:rgba(255,255,255,.10);border-color:rgba(255,255,255,.30)}
+
+/* ==========================================================================
+   皮肤 3 · 8-BIT 像素：黑绿 + 等宽字 + 直角 + 硬边框
+   ========================================================================== */
+body.skin-pixel{
+  --bg-0:#050b07; --bg-1:#07130c; --bg-2:#0a1a10;
+  --card:#0c1c12; --card-2:#123021;
+  --stroke:#1f5c3a; --stroke-2:#39ff88;
+  --accent:#39ff88; --accent2:#7dffb8; --accent-txt:#05130a;
+  --txt:#dcffe9; --dim:#79c99a; --faint:#3f7a58;
+  --radius:0px; --radius-lg:0px;
+  --font:"Noto Sans Mono CJK SC","Noto Sans Mono",Consolas,monospace;
+}
+body.skin-pixel #stage{background:repeating-linear-gradient(0deg,#050b07,#050b07 3px,#071009 3px,#071009 6px)}
+body.skin-pixel .brand b{border-radius:0}
+body.skin-pixel .card,body.skin-pixel .tile,body.skin-pixel .mrow{border-style:solid;border-width:3px}
+body.skin-pixel .card.focus,body.skin-pixel .tile.focus,body.skin-pixel .mrow.focus{
+  background:var(--accent);border-color:#dcffe9;
+}
+body.skin-pixel .card.focus .t,body.skin-pixel .card.focus .s,body.skin-pixel .card.focus .dur,
+body.skin-pixel .tile.focus .t,body.skin-pixel .tile.focus .s,
+body.skin-pixel .mrow.focus .k,body.skin-pixel .mrow.focus .v{color:#05130a}
+body.skin-pixel .platter{border-radius:50%;box-shadow:0 0 0 4px var(--accent), 0 0 50px rgba(57,255,136,.35)}
+body.skin-pixel .tag,.skin-pixel .chip{border-radius:0}
+
+/* ==========================================================================
+   皮肤 4 · 新拟物：浅灰底 + 双向柔影，安静但有质感
+   ========================================================================== */
+body.skin-neumorph{
+  --bg-0:#dfe5ee; --bg-1:#e6ebf3; --bg-2:#d8dfe9;
+  --card:#e3e8ef; --card-2:#eef2f8;
+  --stroke:#cfd6e0; --stroke-2:#b6c0cf;
+  --accent:#4f7cf7; --accent2:#7aa2ff; --accent-txt:#ffffff;
+  --txt:#2d3748; --dim:#5f6b7e; --faint:#8b96a8;
+  --radius:22px; --radius-lg:28px;
+}
+body.skin-neumorph #stage{background:linear-gradient(135deg,#e7ecf4,#dbe2ec)}
+body.skin-neumorph .card,body.skin-neumorph .tile,body.skin-neumorph .mrow{
+  box-shadow:8px 8px 18px rgba(163,177,198,.55), -8px -8px 18px rgba(255,255,255,.9);
+  border-color:transparent;
+}
+body.skin-neumorph .card.focus,body.skin-neumorph .tile.focus,body.skin-neumorph .mrow.focus{
+  box-shadow:4px 4px 10px rgba(163,177,198,.6), -4px -4px 10px rgba(255,255,255,.95),
+             0 0 0 3px var(--accent);
+  background:#eef2f8;
+}
+body.skin-neumorph .now h2,body.skin-neumorph .lib-title{color:#1f2937}
+body.skin-neumorph .lyric{color:#2d3748}
+body.skin-neumorph .brand b{color:#fff}
+body.skin-neumorph .platter{background:radial-gradient(circle at 50% 50%,#cfd7e3 0 32%,#b9c3d2 33% 100%);
+  box-shadow:10px 10px 24px rgba(163,177,198,.7), -10px -10px 24px rgba(255,255,255,.9)}
+body.skin-neumorph .platter .hole{background:#cfd7e3;box-shadow:inset 0 0 0 3px #aab5c6}
+body.skin-neumorph .login-card{box-shadow:12px 12px 28px rgba(163,177,198,.6), -12px -12px 28px rgba(255,255,255,.9)}
+body.skin-neumorph .fld{background:#e3e8ef;box-shadow:inset 4px 4px 10px rgba(163,177,198,.55), inset -4px -4px 10px rgba(255,255,255,.9)}
+body.skin-neumorph .kb-card{background:#e6ebf3}
+
+/* ==========================================================================
+   皮肤 5 · 黏土：深紫底 + 大圆角 + 内高光，像捏出来的
+   ========================================================================== */
+body.skin-clay{
+  --bg-0:#1c1430; --bg-1:#2a1d47; --bg-2:#3a2560;
+  --card:#3a2a63; --card-2:#4a3680;
+  --stroke:#5b4590; --stroke-2:#8a6fd0;
+  --accent:#a48bff; --accent2:#d0b8ff; --accent-txt:#1c1430;
+  --txt:#f4efff; --dim:#c3b2e8; --faint:#8b78b8;
+  --radius:26px; --radius-lg:34px;
+}
+body.skin-clay #stage{
+  background:
+    radial-gradient(1000px 800px at 82% -12%, rgba(164,139,255,.42), transparent 62%),
+    linear-gradient(150deg,#1c1430,#2a1d47 55%,#3a2560);
+}
+body.skin-clay .card,body.skin-clay .tile,body.skin-clay .mrow{
+  box-shadow:inset 0 2px 2px rgba(255,255,255,.16), inset 0 -6px 14px rgba(0,0,0,.28), 0 18px 34px rgba(0,0,0,.36);
+  border-color:transparent;
+}
+body.skin-clay .card.focus,body.skin-clay .tile.focus,body.skin-clay .mrow.focus{
+  background:#5a4196;
+  box-shadow:inset 0 2px 3px rgba(255,255,255,.3), 0 0 0 4px var(--accent), 0 22px 44px rgba(0,0,0,.45);
+}
+body.skin-clay .platter{box-shadow:0 30px 60px rgba(0,0,0,.55), inset 0 0 0 6px rgba(255,255,255,.08)}
+body.skin-clay .tab{border-radius:999px}
+
+/* ==========================================================================
+   皮肤 6 · 瑞士极简：纯白 + 发丝线 + 无圆角，只有排版
+   ========================================================================== */
+body.skin-swiss{
+  --bg-0:#f2f2f2; --bg-1:#ffffff; --bg-2:#f7f7f7;
+  --card:#ffffff; --card-2:#f0f0f0;
+  --stroke:#dcdcdc; --stroke-2:#111111;
+  --accent:#111111; --accent2:#444444; --accent-txt:#ffffff;
+  --txt:#101010; --dim:#5a5a5a; --faint:#9a9a9a;
+  --radius:0px; --radius-lg:0px;
+}
+body.skin-swiss #stage{background:#f4f4f4}
+body.skin-swiss .card,body.skin-swiss .tile,body.skin-swiss .mrow{
+  background:#fff;border:1px solid #e2e2e2;box-shadow:none;
+}
+body.skin-swiss .card.focus,body.skin-swiss .tile.focus,body.skin-swiss .mrow.focus{
+  background:#111;border-color:#111;
+}
+body.skin-swiss .card.focus .t,body.skin-swiss .card.focus .s,body.skin-swiss .card.focus .dur,
+body.skin-swiss .tile.focus .t,body.skin-swiss .tile.focus .s,
+body.skin-swiss .mrow.focus .k,body.skin-swiss .mrow.focus .v{color:#fff}
+body.skin-swiss .card.focus .cov{background:rgba(255,255,255,.18)}
+body.skin-swiss .brand b{background:#111;color:#fff}
+body.skin-swiss .topbar{border-bottom:2px solid #111}
+body.skin-swiss .hintbar{border-top:1px solid #ddd}
+body.skin-swiss kbd{background:#fff;border-color:#ccc;color:#111}
+body.skin-swiss .ly-line{color:#a8a8a8}
+body.skin-swiss .ly-line.active{color:#111;text-shadow:none;font-weight:900}
+body.skin-swiss .bar{background:#e6e6e6}
+body.skin-swiss .bar i{background:#111;box-shadow:none}
+body.skin-swiss .platter{background:#fff;box-shadow:0 0 0 1px #e2e2e2, 0 20px 40px rgba(0,0,0,.10)}
+body.skin-swiss .platter .hole{background:#fff;box-shadow:0 0 0 2px #ccc}
+body.skin-swiss .login-card{background:#fff;border:1px solid #e4e4e4;box-shadow:none}
+body.skin-swiss .fld{background:#fafafa}
+body.skin-swiss .kb-card{background:#fff;border-color:#ddd}
+body.skin-swiss .modal{background:rgba(255,255,255,.86)}
+body.skin-swiss #hud,body.skin-swiss #toast{background:#111;border-color:#111;color:#fff}
+body.skin-swiss .tag{border-color:#ddd;color:#666}
+
+/* ==========================================================================
+   皮肤 7 · 透明灯箱：纯黑 + 暖橙聚光，像玻璃后面点了一盏灯
+   ========================================================================== */
+body.skin-lumen{
+  --bg-0:#050505; --bg-1:#0a0908; --bg-2:#12100d;
+  --card:rgba(255,181,71,.09); --card-2:rgba(255,181,71,.16);
+  --stroke:rgba(255,181,71,.26); --stroke-2:rgba(255,181,71,.55);
+  --accent:#ffb547; --accent2:#ffd79a; --accent-txt:#1a1207;
+  --txt:#fff6e8; --dim:#d9bb92; --faint:#8a7352;
+  --radius:18px; --radius-lg:24px;
+}
+body.skin-lumen #stage{
+  background:
+    radial-gradient(760px 760px at 24% 46%, rgba(255,181,71,.30), transparent 62%),
+    radial-gradient(1000px 700px at 88% -8%, rgba(255,120,60,.16), transparent 65%),
+    #050505;
+}
+body.skin-lumen .vinyl .glow{background:radial-gradient(circle, rgba(255,181,71,.42) 0%, rgba(255,181,71,0) 64%);opacity:.9}
+body.skin-lumen .card.focus,body.skin-lumen .tile.focus,body.skin-lumen .mrow.focus{
+  background:rgba(255,181,71,.20);
+  box-shadow:0 0 0 3px var(--accent), 0 18px 50px rgba(255,150,50,.30);
+}
+body.skin-lumen .ly-line.active{text-shadow:0 0 40px rgba(255,181,71,.85)}
+body.skin-lumen .platter{box-shadow:0 30px 70px rgba(0,0,0,.8), inset 0 0 0 2px rgba(255,181,71,.20)}
+
+/* ==========================================================================
+   配色（皮肤之外再叠一层强调色）
+   ========================================================================== */
+body.theme-violet{
+  --accent:#a86bff; --accent2:#d0a6ff;
+  --bg-1:#151029; --bg-2:#1e1740;
+}
+body.theme-emerald{
+  --accent:#2dd4a7; --accent2:#7ce8c8;
+  --bg-1:#071813; --bg-2:#0b2820;
+}
+body.skin-glass.theme-violet{--accent:#c9a6ff;--accent2:#e6d1ff}
+body.skin-glass.theme-emerald{--accent:#8ef0d3;--accent2:#c9fbee}
+body.skin-brutal.theme-violet{--accent:#c08bff;--accent2:#e0bbff;--accent-txt:#0a0a0a}
+body.skin-brutal.theme-emerald{--accent:#4dffc0;--accent2:#a8ffe0;--accent-txt:#0a0a0a}
+body.skin-lumen.theme-violet{--accent:#c79bff;--accent2:#e3ccff}
+body.skin-lumen.theme-emerald{--accent:#5cf0c0;--accent2:#b4fbe4}
+
+/* ==========================================================================
+   背景压暗层：必须挂在 body 上，挂在 .punit 里 #backdrop 读不到
+   ========================================================================== */
+body.skin-brutal{--scrim:rgba(247,244,234,.82)}
+body.skin-glass{--scrim:rgba(16,12,38,.70)}
+body.skin-pixel{--scrim:rgba(5,11,7,.86)}
+body.skin-neumorph{--scrim:rgba(233,238,246,.88)}
+body.skin-clay{--scrim:rgba(42,26,20,.72)}
+body.skin-swiss{--scrim:rgba(255,255,255,.92)}
+body.skin-lumen{--scrim:rgba(8,6,4,.80)}
+body.skin-brutal #backdrop{background-color:#f2eee1}
+body.skin-swiss #backdrop{background-color:#ffffff}
+body.skin-neumorph #backdrop{background-color:#e9eef6}
+
+/* 8-bit 加厚：液晶点阵底纹 + 像素扫描线 + 等宽字 */
+body.skin-pixel .pu-screen{
+  background-color:#0f380f;
+  background-image:radial-gradient(rgba(0,0,0,.30) 1px, transparent 1px);
+  background-size:4px 4px;
+}
+body.skin-pixel .pu-title{font-size:26px;letter-spacing:.06em}
+body.skin-pixel .pu-artist{letter-spacing:.14em}
+body.skin-pixel .punit{box-shadow:10px 10px 0 #33332a, inset 0 0 0 3px #efecdc}
+
+/* 登录按钮：body.skin-brutal .fld 特异性压过了 .fld.act，得单独提一条 */
+body.skin-brutal .fld.act{background:#ffd60a;border-color:#111}
+body.skin-brutal .fld.act .val{color:#0a0a0a}
+body.skin-brutal .fld.focus{box-shadow:0 0 0 4px #111}
+body.skin-neumorph .fld.act{background:#5a7ad6;border-color:#5a7ad6}
+
+/* 登录按钮：body.skin-brutal .fld 特异性压过了 .fld.act，得单独提一条 */
+body.skin-brutal .fld.act{background:#ffd60a;border-color:#111}
+body.skin-brutal .fld.act .val{color:#0a0a0a}
+body.skin-brutal .fld.focus{box-shadow:0 0 0 4px #111}
+body.skin-neumorph .fld.act{background:#5a7ad6;border-color:#5a7ad6}
+
+/* ==========================================================================
+   1.0.7 打磨
+   ========================================================================== */
+
+/* 右侧歌词：非活跃行压下去，活跃行拉起来——三米外一眼看出唱到哪 */
+.ly-line{opacity:.55}
+.ly-line.active{transform:scale(1.16)}
+
+/* 浅底皮肤（新拟物 / 瑞士）非活跃行原来太淡，坐远了看不见 */
+body.skin-neumorph{--faint:#7b8698}
+body.skin-neumorph .ly-line{opacity:.78}
+body.skin-swiss{--faint:#939aa6}
+body.skin-swiss .ly-line{opacity:.80}
+body.skin-brutal{--faint:#6f6a5e}
+body.skin-brutal .ly-line{opacity:.66}
+body.skin-clay{--faint:#c8b0a0}
+body.skin-clay .ly-line{opacity:.62}
+
+/* 8-BIT：封面罩一层液晶绿，别让彩图破了像素机的味道 */
+body.skin-pixel .pu-stage::after{
+  background:linear-gradient(to bottom,
+    rgba(15,56,15,.62) 0%, rgba(15,56,15,.55) 40%, rgba(11,43,11,.88) 100%);
+}
+body.skin-pixel .pu-ly{color:#c8e070;text-shadow:0 0 12px rgba(155,188,15,.55), 0 2px 4px #0b2b0b}
+body.skin-pixel .pu-head{border-bottom-color:#0b2b0b}
+body.skin-pixel .pu-title{color:#9bbc0f}
+body.skin-pixel .pu-stage{border-radius:0}
+
+/* 玻璃 / 灯箱：深底上歌词压一点亮 */
+body.skin-glass .ly-line{opacity:.50}
+body.skin-lumen .ly-line{opacity:.50}
